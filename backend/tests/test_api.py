@@ -1,5 +1,6 @@
 """API tests: shape, validation, edge cases, timezones."""
 import datetime as dt
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -693,3 +694,36 @@ def test_tiny_angles_never_make_a_double_superscript_in_tex():
     s = step("x", None, r"\theta = (-7.1247\times 10^{-15}^{\circ}+360^{\circ}) \bmod 360^{\circ}")
     assert s["substituted_tex"] == r"\theta = ((-7.1247\times 10^{-15})^{\circ}+360^{\circ}) \bmod 360^{\circ}"
     assert step("x", r"\theta = 5.1^{\circ}")["tex"] == r"\theta = 5.1^{\circ}"
+
+
+def detour_note(a, b, **options):
+    body = post(a, b, **options).json()
+    m = by_id(body)
+    ft = [n for n in m["flight_time"]["explanation"]["notes"] if "Dobruszkes" in n]
+    an = [n for n in m["distance_analysis"]["explanation"]["notes"] if "Dobruszkes" in n]
+    assert len(ft) == 1 and len(an) == 1
+    return ft[0].replace("\u00a0", " "), an[0].replace("\u00a0", " ")
+
+
+def test_flight_detour_is_specific_and_sourced():
+    ft, an = detour_note(AMS, EZE)                                                        # 11 462 km: long haul
+    for text in (ft, an):
+        assert "on average +7.6 %" in text and "+14.3 % up to 1 000 km" in text and "+7.3 % for 1 001–4 000 km" in text and "+4.8 % above 4 000 km" in text
+        assert "Dobruszkes & Peeters, 2019" in text and "393 360 flights" in text and "(long haul)" in text
+        assert "about 12 012 km flown" in text and "roughly 39 min more at 850 km/h" in text
+    assert "distances here are at sea level".capitalize() in an
+    short = detour_note((52.3086, 4.7639), (52.9, 5.4))[0]                                # about 85 km
+    assert "(short haul)" in short
+    assert "(medium haul)" in detour_note((52.3086, 4.7639), (41.4, 2.2))[0]              # about 1 240 km
+    assert "(long haul)" in detour_note((52.3086, 4.7639), (40.6, -73.8))[0]
+    mi = detour_note(AMS, EZE, units="mi")[0]
+    assert "about 7 464 mi flown" in mi and "528 mph" in mi and "+4.8 %" in mi
+    for body in (post(AMS, EZE).json(), post((10, 20), (10, 21)).json()):                  # the vague rule of thumb is gone everywhere
+        assert "5–10" not in json.dumps(body, ensure_ascii=False)
+
+
+def test_flight_detour_class_limits():
+    from app.metrics import _detour_text
+    for km, cls in ((999.9, "short haul"), (1000.0, "short haul"), (1000.1, "medium haul"), (4000.0, "medium haul"), (4000.1, "long haul")):
+        assert f"({cls})" in _detour_text(km, "km", 850.0), km
+    assert "about 1 143 km flown" in _detour_text(1000.0, "km", 850.0).replace("\u00a0", " ")      # +14.3 %

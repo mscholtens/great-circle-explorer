@@ -60,6 +60,23 @@ def _undefined(mid, group, label, reason, why, notes=None):
                    explanation(why, [step("Why this is undefined", None, None, why)], [], notes or []))
 
 
+def _detour_text(d_km, unit, cruise_kmh):
+    """What real flights typically add to the great-circle distance (Dobruszkes & Peeters, 2019), for this route's class."""
+    limit_short, limit_medium = K.FLIGHT_DETOUR_LIMITS_KM
+    cls = "short" if d_km <= limit_short else "medium" if d_km <= limit_medium else "long"
+    names = {"short": "short haul", "medium": "medium haul", "long": "long haul"}
+    pct = K.FLIGHT_DETOUR_PCT[cls]
+    flown = d_km * (1.0 + pct / 100.0)
+    p = K.FLIGHT_DETOUR_PCT
+
+    def n(x):
+        return space_thousands(x)
+    return (f"Real flights follow airways, winds and airspace restrictions and are longer than the great circle: on average +{p['all']:g} %, "
+            f"but +{p['short']:g} % up to {n(limit_short)} km, +{p['medium']:g} % for {n(limit_short + 1)}–{n(limit_medium)} km and +{p['long']:g} % above {n(limit_medium)} km "
+            f"(Dobruszkes & Peeters, 2019: {n(K.FLIGHT_DETOUR_SAMPLE)} flights, weighted by distance; a conservative estimate). "
+            f"For this route ({names[cls]}) that would be about {fmt_dist(flown, unit)} flown, roughly {hm((flown - d_km) / cruise_kmh)} more at {fmt_speed(cruise_kmh, unit)}.")
+
+
 def _angle_forms(theta_deg):
     """Two extra steps for a course: in radians, and as an hour angle (15 degrees = 1 hour)."""
     theta_rad = rad(theta_deg)
@@ -878,7 +895,8 @@ def calculate(a_lat, a_lon, b_lat, b_lon, cruise_kmh=None, climb_descent_min=Non
                      const("t_taxi", f"{taxi_min:g} min", "taxiing at both airports together (adjustable assumption)")],
                     ["Airborne time runs from take-off to landing; taxiing is excluded. The gate-to-gate time adds the taxi allowance.",
                      "The distance is measured point to point between the two coordinates. Runway positions and lengths, departure and arrival procedures and holding patterns are not known and not modelled.",
-                     "Ignores winds (the jet stream can change real times by an hour or more) and airways (real routes are typically 5–10 % longer than the great circle). The distance is measured at sea level; at cruise altitude the path is about 0.17 % longer.",
+                     "Ignores winds (the jet stream can change real times by an hour or more) and airways. The distance is measured at sea level; at cruise altitude the path is about 0.17 % longer.",
+                     _detour_text(d_km, unit, cruise_kmh),
                      "The climb/descent and taxi allowances are rough assumptions; change them under Options."])))
     unit_conv["flight_time"] = [("speed", cruise_kmh)]
 
@@ -1293,7 +1311,7 @@ def calculate(a_lat, a_lon, b_lat, b_lon, cruise_kmh=None, climb_descent_min=Non
             sec.append(f"{far_under['short']} {pct_text(far_under['diff_pct'])}")
         sec.append(f"great circle (conventional) {pct_text(conv_pct)}")
         notes = ["All of these describe the same two points. They differ for two different reasons: the method (a path over a surface, on a flat map, or through the Earth) and the model of the Earth (a sphere of some radius, or the ellipsoid).",
-                 "Real flights follow airways and winds and are typically 5–10 % longer than the great circle; distances here are at sea level.",
+                 _detour_text(d_km, unit, cruise_kmh) + " Distances here are at sea level.",
                  f"The reference is the {ref_label}. Vincenty's formula agrees with Karney's algorithm to about 0.1 mm wherever it converges."] + footnotes + summary
         if path_sep_km is not None and path_sep_km >= 1.0:
             notes.append(f"The straight line on a Mercator map (the rhumb line) and the great circle are up to about {fmt_dist(path_sep_km, unit)} apart on the ground, although their lengths differ much less.")

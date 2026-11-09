@@ -65,6 +65,15 @@ SPHERE_ERROR_TYPICAL_PCT = 0.2
 SPHERE_ERROR_MAX_PCT = 0.5
 # Typical airliner cruise altitude, m
 CRUISE_ALTITUDE_M = 11000.0
+# How much longer real flights are than the great-circle distance (average lengthening, percent), by flight class.
+# Source: Dobruszkes F., Peeters D. (2019), "The magnitude of detours faced by commercial flights: A global assessment",
+# Journal of Transport Geography 79, 102465 (https://doi.org/10.1016/j.jtrangeo.2019.102465), Table 2: 393 360 flights
+# (Flightradar24 traces, 3-9 November 2017) against the great-circle distance, weighted by distance. The classes are
+# defined by the shortest route: short haul up to 1000 km, medium haul 1001-4000 km, long haul more than 4000 km.
+# The authors call it a conservative estimate (median 8.2 %, standard deviation 11.9 %).
+FLIGHT_DETOUR_LIMITS_KM = (1000.0, 4000.0)
+FLIGHT_DETOUR_PCT = {"all": 7.6, "short": 14.3, "medium": 7.3, "long": 4.8}
+FLIGHT_DETOUR_SAMPLE = 393360
 # Default observer eye height, m
 EYE_HEIGHT_M_DEFAULT = 1.7
 # Web Mercator latitude limit (atan(sinh(pi))), degrees

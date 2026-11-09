@@ -235,7 +235,7 @@ t_cruise     = d / v
 t_airborne   = t_cruise + t_climb/descent      # take-off to landing, no taxiing (the headline value)
 t_gate_gate  = t_airborne + t_taxi             # adds taxiing at both airports
 ```
-`v`, `t_climb/descent` and `t_taxi` are adjustable (defaults 850 km/h, 15 min, 15 min; the two allowances are assumptions). The distance is point to point between the two coordinates: runway positions and lengths, departure/arrival procedures, holding patterns, airways and wind (jet stream) are not known and not modelled.
+`v`, `t_climb/descent` and `t_taxi` are adjustable (defaults 850 km/h, 15 min, 15 min; the two allowances are assumptions). The distance is point to point between the two coordinates: runway positions and lengths, departure/arrival procedures, holding patterns, airways and wind (jet stream) are not known and not modelled. Real flights are longer than the great circle: on average +7.6 %, +14.3 % up to 1 000 km, +7.3 % for 1 001–4 000 km and +4.8 % above 4 000 km (Dobruszkes & Peeters 2019, 393 360 flights; see [ACCURACY.md](ACCURACY.md)). The explanations show the figure for the route's class and the typical flown distance `d·(1 + p/100)`, but the flight time itself does not include it.
 
 ## latency — theoretical minimum ping
 ```
