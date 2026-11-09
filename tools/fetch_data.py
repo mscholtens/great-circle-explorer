@@ -6,10 +6,12 @@ Downloads and builds the bundled data files, which are then committed:
   frontend/public/data/labels.json      one label point per country
   frontend/public/fonts/Noto Sans Regular/*.pbf   glyph ranges for map labels (SIL OFL)
   backend/app/data/timezones.json       simplified timezone-boundary-builder polygons (ODbL)
+  backend/app/data/places.json          airports (OurAirports, public domain) and larger cities (Natural Earth)
 
-Usage:  python3 tools/fetch_data.py [countries] [fonts] [timezones]   (default: all)
+Usage:  python3 tools/fetch_data.py [countries] [fonts] [timezones] [places]   (default: all)
 Only the standard library is used. Polygon simplification (Douglas-Peucker) is hand-written.
 """
+import csv
 import io
 import json
 import math
@@ -24,11 +26,16 @@ NE_URL = ("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master
           "geojson/ne_50m_admin_0_countries.geojson")
 TZ_URL = ("https://github.com/evansiroky/timezone-boundary-builder/releases/download/"
           "2026f/timezones.geojson.zip")
+AIRPORTS_URL = "https://davidmegginson.github.io/ourairports-data/airports.csv"
+CITIES_URL = ("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
+              "geojson/ne_10m_populated_places_simple.geojson")
+CITY_MIN_POPULATION = 300000
 FONT_BASE = "https://demotiles.maplibre.org/font/"
 FONT_STACK = "Noto Sans Regular"
 FONT_RANGES = ["0-255", "256-511", "512-767", "7680-7935"]
 
 TZ_TOLERANCE_DEG = 0.03   # Douglas-Peucker tolerance for timezone polygons (~3 km)
+TZ_SMALL_RING_FRACTION = 20   # a ring is never simplified more coarsely than 1/20 of its own size (keeps small enclaves like Melilla)
 NE_DECIMALS = 3
 TZ_DECIMALS = 3
 
@@ -77,6 +84,8 @@ def simplify_ring(ring, tol, decimals):
         pts = pts[:-1]
     if len(pts) < 3:
         return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    tol = min(tol, max(max(xs) - min(xs), max(ys) - min(ys)) / TZ_SMALL_RING_FRACTION)   # small rings keep their shape
     # anchor DP on the two points farthest apart so closed rings simplify well
     far = max(range(len(pts)), key=lambda k: (pts[k][0] - pts[0][0]) ** 2 + (pts[k][1] - pts[0][1]) ** 2)
     a = douglas_peucker(pts[: far + 1], tol)
@@ -174,11 +183,42 @@ def build_timezones():
     print("timezones:", len(zones), "points", before, "->", after)
 
 
+def build_places():
+    """Airports with an IATA code and scheduled service (large and medium) plus cities of >= 300 000 people."""
+    cities_raw = json.loads(download(CITIES_URL))["features"]
+    country_names = {}
+    for f in cities_raw:                                   # ISO code -> country name, from the same file
+        p = f["properties"]
+        if p.get("iso_a2") and p["iso_a2"] != "-99" and p.get("adm0name"):
+            country_names.setdefault(p["iso_a2"], p["adm0name"])
+    places = []
+    reader = csv.DictReader(io.StringIO(download(AIRPORTS_URL).decode("utf-8")))
+    for row in reader:
+        if (row["type"] in ("large_airport", "medium_airport") and row["iata_code"]
+                and row["scheduled_service"] == "yes"):
+            places.append({"kind": "airport", "code": row["iata_code"], "name": row["name"],
+                           "city": row["municipality"], "country": country_names.get(row["iso_country"], row["iso_country"]),
+                           "lat": round(float(row["latitude_deg"]), 4), "lon": round(float(row["longitude_deg"]), 4)})
+    n_airports = len(places)
+    for f in cities_raw:
+        p = f["properties"]
+        if (p.get("pop_max") or 0) >= CITY_MIN_POPULATION:
+            places.append({"kind": "city", "code": "", "name": p["name"], "city": "", "country": p.get("adm0name") or "",
+                           "lat": round(p["latitude"], 4), "lon": round(p["longitude"], 4)})
+    out = os.path.join(ROOT, "backend", "app", "data")
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "places.json"), "w", encoding="utf-8") as fh:
+        json.dump({"places": places}, fh, separators=(",", ":"), ensure_ascii=False)
+    print("places:", n_airports, "airports,", len(places) - n_airports, "cities")
+
+
 if __name__ == "__main__":
-    what = sys.argv[1:] or ["countries", "fonts", "timezones"]
+    what = sys.argv[1:] or ["countries", "fonts", "timezones", "places"]
     if "countries" in what:
         build_countries()
     if "fonts" in what:
         build_fonts()
     if "timezones" in what:
         build_timezones()
+    if "places" in what:
+        build_places()

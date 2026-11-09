@@ -1,7 +1,8 @@
 [project]
 name = "great-circle-explorer"
 version = "0.1.0"
-description = "Great-circle metrics with step-by-step explanations (hand-written spherical math)"
+description = "Great-circle metrics with step-by-step explanations (hand-written spherical math). For learning and exploration only."
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",

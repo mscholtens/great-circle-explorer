@@ -36,11 +36,40 @@ export function health() {
   return request('/health');
 }
 
-/** a, b: {lat, lon}; options: {cruise_kmh, overhead_min, date, height_a_m, height_b_m} */
-export function calculate(a, b, options) {
+/** Night side of the Earth at a UTC date (YYYY-MM-DD) and time (HH:MM). */
+export function terminator(date, time) {
+  return request(`/terminator?date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`);
+}
+
+/**
+ * a, b: {lat, lon}; options (all optional): cruise_kmh, climb_descent_min, taxi_min, date, height_a_m, height_b_m,
+ * project_bearing_deg + project_km (destination from A), include_return, circle_km
+ */
+export function calculate(a, b, options, course = null) {
+  // Inverse mode: no B, but a course { bearing_deg, km } from A; the backend computes B and returns it.
   return request('/calculate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ a, b, options }),
+    body: JSON.stringify(course ? { a, course, options } : { a, b, options }),
   });
+}
+
+/** Airports and cities matching a code or name (best first). */
+export function places(q, limit = 8) {
+  return request(`/places?q=${encodeURIComponent(q)}&limit=${limit}`);
+}
+
+/** Nearest airport and nearest city to a point: { airport, city } with distances in km. */
+export function nearest(lat, lon) {
+  return request(`/nearest?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+}
+
+/** Distance/speed units with their size in km: [{ id, label, speed_label, km_per_unit }]. */
+export function units() {
+  return request('/units');
+}
+
+/** Every bundled airport: [{ code, name, city, country, lat, lon }] (for the airports layer). */
+export function airports() {
+  return request('/airports');
 }

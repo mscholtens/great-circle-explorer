@@ -1,4 +1,9 @@
 """Helpers to build explanation steps: number formatting (TeX and plain) and step/constant dicts."""
+import re
+
+from . import constants as K
+
+
 def sig(x, n=5):
     """Plain-text number with ~n significant digits (no trailing zeros, thousands unseparated)."""
     if x is None:
@@ -44,8 +49,16 @@ def td(x_deg, n=5):
     return tn(x_deg, n) + r"^{\circ}"
 
 
+_SCI_DEGREES = re.compile(r"(-?\d+(?:\.\d+)?\\times 10\^\{-?\d+\})\^\{\\circ\}")
+
+
+def _paren_sci_degrees(tex):
+    """'7.1\\times 10^{-15}^{\\circ}' is a double superscript in TeX: write '(7.1\\times 10^{-15})^{\\circ}'."""
+    return None if tex is None else _SCI_DEGREES.sub(r"(\1)^{\\circ}", tex)
+
+
 def step(label, tex=None, substituted_tex=None, result=None):
-    return {"label": label, "tex": tex, "substituted_tex": substituted_tex, "result": result}
+    return {"label": label, "tex": _paren_sci_degrees(tex), "substituted_tex": _paren_sci_degrees(substituted_tex), "result": result}
 
 
 def const(symbol, value, meaning):
@@ -77,6 +90,28 @@ def hm(hours):
     if h >= 100:
         return f"{space_thousands(hours)} h"
     return f"{h} h {m:02d} min"
+
+
+def fmt_dist(km, unit="km"):
+    """Distance in the chosen unit for a card: '7 494 mi'."""
+    u = K.UNITS[unit]
+    return f"{space_thousands(km / u['km_per_unit'])} {u['label']}"
+
+
+def fmt_speed(kmh, unit="km"):
+    """Speed in the chosen unit: '850 km/h', '528 mph', '459 kn'."""
+    u = K.UNITS[unit]
+    v = kmh / u["km_per_unit"]
+    s = space_thousands(v) if v >= 100 else (f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}")
+    return f"{s} {u['speed_label']}"
+
+
+def hms(hours):
+    """Duration with seconds from hours: '15 h 57 min 36 s'."""
+    total = round(hours * 3600.0)
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h} h {m:02d} min {sec:02d} s"
 
 
 def latlon_text(lat_deg, lon_deg, decimals=4):

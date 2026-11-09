@@ -1,4 +1,5 @@
-"""Point-in-polygon by ray casting. Plain arithmetic only."""
+"""Point-in-polygon by ray casting, and distance to a polygon outline. Plain arithmetic only."""
+import math
 
 
 def point_in_ring(x, y, ring):
@@ -23,6 +24,35 @@ def point_in_polygon(x, y, rings):
     if not point_in_ring(x, y, rings[0]):
         return False
     return not any(point_in_ring(x, y, hole) for hole in rings[1:])
+
+
+def polygon_area(ring):
+    """Area of a ring in square degrees (shoelace formula); only used to compare polygons with each other."""
+    total = 0.0
+    n = len(ring)
+    for i in range(n):
+        x1, y1 = ring[i]
+        x2, y2 = ring[(i + 1) % n]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2.0
+
+
+def distance_to_ring_km(x, y, ring, km_per_degree):
+    """Distance in km from the point (x = lon, y = lat, degrees) to the outline of a ring.
+
+    Local flat approximation (longitude scaled by cos(latitude)), good for the few tens of km it is used for.
+    """
+    kx = km_per_degree * math.cos(math.radians(y))
+    best = float("inf")
+    n = len(ring)
+    for i in range(n):
+        ax, ay = (ring[i][0] - x) * kx, (ring[i][1] - y) * km_per_degree
+        bx, by = (ring[(i + 1) % n][0] - x) * kx, (ring[(i + 1) % n][1] - y) * km_per_degree
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        t = 0.0 if seg2 == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / seg2))
+        best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+    return best
 
 
 def bbox_of(rings):

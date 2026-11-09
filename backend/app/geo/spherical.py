@@ -106,6 +106,80 @@ def sample_path(lat1, lon1, lat2, lon2, delta, n=128):
     return [(p[0], lon) for p, lon in zip(pts, lons)]
 
 
+def plate_carree_distance(lat1, lon1, lat2, lon2):
+    """The 'graph paper' distance: read latitude and longitude as flat x/y coordinates in degrees.
+
+        dphi = phi2 - phi1,  dlam = lam2 - lam1 (the shorter way around, within +/-180 deg)
+        d    = sqrt(dphi^2 + dlam^2)           in degrees; multiply by 111.195 km per degree
+    Longitude degrees shrink towards the poles, so this overstates east-west distances away from the equator.
+    Returns (dphi_deg, dlam_deg, d_deg).
+    """
+    dphi = math.degrees(lat2 - lat1)
+    dlam = (math.degrees(lon2 - lon1) + 180.0) % 360.0 - 180.0
+    return dphi, dlam, math.hypot(dphi, dlam)
+
+
+def equirectangular_distance(lat1, lon1, lat2, lon2):
+    """The 'programmer's shortcut': treat the surface near the route as flat, with longitude scaled by cos(mean latitude).
+
+        phi_m = (phi1 + phi2) / 2,   dlam wrapped to [-pi, pi]
+        d = R sqrt(dphi^2 + (dlam cos phi_m)^2)        (angle returned; multiply by R)
+    Good for short distances, increasingly wrong for long ones. Returns (dphi, dlam, phi_m, angle).
+    """
+    dphi = lat2 - lat1
+    dlam = wrap_pi(lon2 - lon1)
+    phi_m = (lat1 + lat2) / 2.0
+    return dphi, dlam, phi_m, math.hypot(dphi, dlam * math.cos(phi_m))
+
+
+def _unit_vector(lat, lon):
+    return (math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat))
+
+
+def max_separation(points_a, points_b):
+    """Largest distance from a point of path A to the nearest point of path B (lists of (lat, lon) in radians).
+
+    For every point of A the closest point of B is found with unit vectors (angle = atan2(|cross|, dot)), then
+    the largest of these distances is returned: (separation in radians, point of A, nearest point of B).
+    The result is accurate to about half the spacing of the points of B.
+    """
+    vb = [_unit_vector(*p) for p in points_b]
+    best = (-1.0, None, None)
+    for pa in points_a:
+        ax, ay, az = _unit_vector(*pa)
+        closest, j_best = 4.0, 0
+        for j, (bx, by, bz) in enumerate(vb):
+            cx, cy, cz = ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
+            ang = math.atan2(math.sqrt(cx * cx + cy * cy + cz * cz), ax * bx + ay * by + az * bz)
+            if ang < closest:
+                closest, j_best = ang, j
+        if closest > best[0]:
+            best = (closest, pa, points_b[j_best])
+    return best
+
+
+def split_antimeridian(points):
+    """Cut a closed or open curve of (lat, lon) points (lon in [-pi, pi]) into pieces at the antimeridian.
+
+    Where consecutive points jump by more than pi in longitude, the latitude at lon = +/-pi is found by linear
+    interpolation and added to both pieces, so the pieces meet exactly at the edge of the map.
+    """
+    segments, current = [], [points[0]]
+    for (la0, lo0), (la1, lo1) in zip(points, points[1:]):
+        if abs(lo1 - lo0) > math.pi:
+            lo1_unwrapped = lo1 + 2.0 * math.pi if lo1 < lo0 else lo1 - 2.0 * math.pi
+            edge = math.pi if lo0 > 0 else -math.pi
+            t = (edge - lo0) / (lo1_unwrapped - lo0)
+            la_edge = la0 + t * (la1 - la0)
+            current.append((la_edge, edge))
+            segments.append(current)
+            current = [(la_edge, -edge), (la1, lo1)]
+        else:
+            current.append((la1, lo1))
+    segments.append(current)
+    return segments
+
+
 def destination(lat1, lon1, bearing, sigma):
     """Point reached from (lat1, lon1) travelling angular distance sigma on the given bearing.
 

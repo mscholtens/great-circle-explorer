@@ -53,25 +53,53 @@ function validatePart(axis, part, mode, raw) {
   return { value: text.replace(',', '.') };
 }
 
+const MAX_COURSE_KM = 100000;   // the backend enforces the same limit
+
+/** A plain non-negative number for the course (degrees) or the distance. Returns { value } or { error }. */
+function validateNumber(raw, max, maxText) {
+  const text = String(raw).replace(/[°º]/g, '').trim();
+  if (text === '') return { error: 'Please enter a number.' };
+  if (text.startsWith('-')) return { error: 'Use a positive number.' };
+  if (!/^(\d+([.,]\d*)?|[.,]\d+)$/.test(text)) return { error: 'Just a number, like 90 or 90.5. No letters or symbols.' };
+  const n = Number(text.replace(',', '.'));
+  if (!Number.isFinite(n)) return { error: 'That does not look like a number.' };
+  if (n > max) return { error: maxText };
+  return { value: n };
+}
+
 /**
- * deps: { getMode(): 'dd'|'dms'|'ddm', getPoint('a'|'b'): {lat, lon}|null, onApply(which, {lat, lon}) }
+ * deps: { getMode(): 'dd'|'dms'|'ddm', getPoint('a'|'b'): {lat, lon}|null, onApply(which, {lat, lon}),
+ *         getInputMode(): 'two'|'course', getCourse(): {bearing_deg, km}|null, getUnit(): {label, km_per_unit},
+ *         onApplyCourse({lat, lon}, bearingDeg, km) }
  * returns { open(openerElement) }
  */
-export function createWizard(root, { getMode, getPoint, onApply }) {
+export function createWizard(root, { getMode, getPoint, onApply, getInputMode, getCourse, getUnit, onApplyCourse }) {
   let modal = null;
 
   function open(opener) {
     if (modal) return;
 
     const s = {
+      input: getInputMode(),     // 'two' = points A and B, 'course' = start point + course + distance
       which: !getPoint('a') ? 'a' : !getPoint('b') ? 'b' : 'a',
       mode: getMode(),
+      course: { bearing: '', dist: '' },
       v: { lat: emptyAxis(), lon: emptyAxis() },
       touched: new Set(),        // "lat.deg", "lon.hemi", ... fields the user has visited
       submitted: false,
     };
+    if (s.input === 'course') s.which = 'a';
     const other = () => (s.which === 'a' ? 'b' : 'a');
     const up = (w) => w.toUpperCase();
+    const unit = () => getUnit();
+
+    function prefillCourse() {
+      const c = getCourse();
+      s.course = c
+        ? { bearing: String(c.bearing_deg), dist: String(Number((c.km / unit().km_per_unit).toPrecision(5))) }
+        : { bearing: '', dist: '' };
+    }
+    prefillCourse();
 
     function prefill() {
       const p = getPoint(s.which);
@@ -81,7 +109,7 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
 
     // ---------- evaluation (pure: reads s, returns errors and values)
     function evaluate() {
-      const out = { ok: true, values: {}, errors: { lat: {}, lon: {} }, axisError: {} };
+      const out = { ok: true, values: {}, errors: { lat: {}, lon: {}, course: {} }, axisError: {} };
       for (const axis of ['lat', 'lon']) {
         const parts = {};
         let partsOk = true;
@@ -99,6 +127,14 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
           out.ok = false;
         }
         if (partsOk && s.v[axis].hemi) out.values[axis] = composeCoord({ ...parts, hemi: s.v[axis].hemi });
+      }
+      if (s.input === 'course') {
+        const u = unit();
+        const b = validateNumber(s.course.bearing, 360, 'The course is between 0 and 360 degrees.');
+        const d = validateNumber(s.course.dist, MAX_COURSE_KM / u.km_per_unit, `At most ${Number((MAX_COURSE_KM / u.km_per_unit).toPrecision(5))} ${u.label}.`);
+        if (b.error) { out.errors.course.bearing = b.error; out.ok = false; }
+        if (d.error) { out.errors.course.dist = d.error; out.ok = false; }
+        if (!b.error && !d.error) out.values.course = { bearing: b.value, dist: d.value, km: d.value * u.km_per_unit };
       }
       return out;
     }
@@ -120,10 +156,23 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
     }
 
     // point + format selectors (rebuilt in place when the selection changes; their section is small)
+    const inputHost = el('div', { class: 'wiz-options two', role: 'radiogroup', 'aria-label': 'What to enter' });
     const pointHost = el('div', { class: 'wiz-options two', role: 'radiogroup', 'aria-label': 'Point' });
+    const pointSection = el('div', {}, el('div', { class: 'wiz-label' }, 'Point'), pointHost);
+    const titleEl = el('h2', { id: 'wiz-title' });
+    const introEl = el('p', { class: 'wiz-intro' });
     const modeHost = el('div', { class: 'wiz-options three', role: 'radiogroup', 'aria-label': 'Format' });
 
     function renderSelectors() {
+      inputHost.replaceChildren(...[['two', 'Two points', 'Enter A and B; the app measures the route'],
+        ['course', 'Start, course and distance', 'Enter A, a course and a distance; the app finds B']]
+        .map(([id, label, blurb]) => radio(s.input === id, () => switchInput(id), [el('strong', {}, label), el('small', {}, blurb)], 'wiz-choice')));
+      pointSection.hidden = s.input === 'course';
+      titleEl.textContent = s.input === 'course' ? 'Enter a start, course and distance' : 'Enter a point';
+      introEl.replaceChildren(s.input === 'course'
+        ? 'Enter the start point, the course and the distance, and the destination is calculated for you. '
+        : 'Choose the point and the format, then fill in the fields. ',
+      el('strong', {}, 'No need to type the ° ′ ″ symbols.'), ' Use a dot for decimals.');
       pointHost.replaceChildren(...['a', 'b'].map((w) => radio(s.which === w, () => switchPoint(w),
         [el('span', { class: `badge badge-${w}` }, up(w)),
           el('span', {}, `Point ${up(w)}`, getPoint(w) ? el('small', {}, 'currently set') : null)], 'wiz-point')));
@@ -134,7 +183,7 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
     // ---------- the dynamic part: one section per axis, fields depend on the format
     let refs = null;
     function renderAxes() {
-      refs = { fields: { lat: {}, lon: {} }, hemi: { lat: {}, lon: {} }, axisErr: {} };
+      refs = { fields: { lat: {}, lon: {} }, hemi: { lat: {}, lon: {} }, axisErr: {}, course: {} };
       const sections = ['lat', 'lon'].map((axis) => {
         const fields = partsFor(s.mode).map((part) => {
           const spec = partSpec(axis, part, s.mode);
@@ -189,7 +238,34 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
             el('div', { class: 'wiz-label-sm' }, 'Direction'), hemiGroup, hemiErr),
           refs.axisErr[axis]);
       });
+      if (s.input === 'course') sections.push(courseSection());
       axesHost.replaceChildren(...sections);
+    }
+
+    function courseSection() {
+      const u = unit();
+      const mk = (key, label, help, suffix, placeholder) => {
+        const id = `wiz-course-${key}`;
+        const input = el('input', {
+          type: 'text', class: 'wiz-input', id, inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false',
+          placeholder, value: s.course[key], 'aria-describedby': `${id}-help ${id}-err`,
+        });
+        const err = el('div', { class: 'wiz-field-error', id: `${id}-err` });
+        refs.course[key] = { input, err };
+        input.addEventListener('input', () => { s.course[key] = input.value; refresh(); });
+        input.addEventListener('blur', () => { s.touched.add(`course.${key}`); refresh(); });
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); advance(input); } });
+        return el('div', { class: 'wiz-field' },
+          el('label', { for: id }, label),
+          el('div', { class: 'wiz-input-wrap' }, input, el('span', { class: 'wiz-suffix', 'aria-hidden': 'true' }, suffix)),
+          el('div', { class: 'wiz-field-help', id: `${id}-help` }, help), err);
+      };
+      return el('fieldset', { class: 'wiz-axis' },
+        el('legend', {}, 'Course and distance'),
+        el('p', { class: 'wiz-help' }, 'The course is the direction to travel, measured clockwise from true north: 0° north, 90° east, 180° south, 270° west. The distance is measured along the surface.'),
+        el('div', { class: 'wiz-fields n2' },
+          mk('bearing', 'Course', 'Decimals allowed, 0 to 360. Example: 239.4', '°', '239.4'),
+          mk('dist', `Distance (${u.label})`, `How far to travel, in ${u.label}. Decimals allowed. The unit can be changed in the side panel.`, u.label, '1000')));
     }
 
     function syncHemi(axis) {
@@ -214,7 +290,25 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
         refs.hemi[axis].err.textContent = show(`${axis}.hemi`) ? r.errors[axis].hemi || '' : '';
         refs.axisErr[axis].textContent = r.axisError[axis] || '';
       }
-      if (r.values.lat !== undefined && r.values.lon !== undefined) {
+      if (s.input === 'course') {
+        for (const key of ['bearing', 'dist']) {
+          const f = refs.course[key];
+          const msg = show(`course.${key}`) ? r.errors.course[key] || '' : '';
+          f.err.textContent = msg;
+          f.input.setAttribute('aria-invalid', msg ? 'true' : 'false');
+        }
+      }
+      if (s.input === 'course' && r.values.lat !== undefined && r.values.lon !== undefined && r.values.course) {
+        const { lat, lon } = r.values;
+        previewBox.replaceChildren(
+          el('div', { class: 'wiz-preview-label' }, 'Start point A, course and distance'),
+          el('div', { class: 'wiz-preview-main' }, `${formatCoord(lat, 'lat', s.mode)},  ${formatCoord(lon, 'lon', s.mode)}`),
+          el('div', { class: 'wiz-preview-alt' }, `Course ${r.values.course.bearing}° · distance ${r.values.course.dist} ${unit().label} — point B is calculated for you`));
+        previewBox.classList.add('ready');
+      } else if (s.input === 'course') {
+        previewBox.replaceChildren(el('div', { class: 'wiz-preview-label' }, 'Fill in the start point, the course and the distance to see a preview.'));
+        previewBox.classList.remove('ready');
+      } else if (r.values.lat !== undefined && r.values.lon !== undefined) {
         const { lat, lon } = r.values;
         previewBox.replaceChildren(
           el('div', { class: 'wiz-preview-label' }, `Point ${up(s.which)} will be`),
@@ -225,12 +319,27 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
         previewBox.replaceChildren(el('div', { class: 'wiz-preview-label' }, 'Fill in all fields to see a preview of the point.'));
         previewBox.classList.remove('ready');
       }
-      setBtn.textContent = `Set point ${up(s.which)}`;
+      setBtn.textContent = s.input === 'course' ? 'Set start, course & distance' : `Set point ${up(s.which)}`;
       nextBtn.textContent = `Set ${up(s.which)}, then enter ${up(other())}`;
+      nextBtn.hidden = s.input === 'course';
       return r;
     }
 
     // ---------- actions
+    function switchInput(id) {
+      if (id === s.input) return;
+      s.input = id;
+      s.touched.clear();
+      s.submitted = false;
+      if (id === 'course') {
+        s.which = 'a';
+        prefill();
+        prefillCourse();
+      }
+      keepScroll(() => { renderSelectors(); renderAxes(); refresh(); });
+      focusSelected(inputHost);
+    }
+
     function switchMode(newMode) {
       if (newMode === s.mode) return;
       for (const axis of ['lat', 'lon']) {
@@ -271,6 +380,7 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
         if (r.axisError[axis]) return refs.fields[axis][partsFor(s.mode)[0]].input;
         if (r.errors[axis].hemi) return refs.hemi[axis].btns[0];
       }
+      for (const key of ['bearing', 'dist']) if (r.errors.course[key]) return refs.course[key].input;
       return null;
     }
 
@@ -289,6 +399,11 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
         if (target) { target.focus(); target.scrollIntoView({ block: 'center' }); }
         return;
       }
+      if (s.input === 'course') {
+        onApplyCourse({ lat: r.values.lat, lon: r.values.lon }, r.values.course.bearing, r.values.course.km);
+        modal.close();
+        return;
+      }
       onApply(s.which, { lat: r.values.lat, lon: r.values.lon });
       if (!thenOther) { modal.close(); return; }
       s.which = other();
@@ -303,9 +418,9 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
 
     // ---------- assemble
     body.append(
-      el('p', { class: 'wiz-intro' }, 'Choose the point and the format, then fill in the fields. ',
-        el('strong', {}, 'No need to type the ° ′ ″ symbols.'), ' Use a dot for decimals.'),
-      el('div', { class: 'wiz-label' }, 'Point'), pointHost,
+      introEl,
+      el('div', { class: 'wiz-label' }, 'What do you want to enter?'), inputHost,
+      pointSection,
       el('div', { class: 'wiz-label' }, 'Format'), modeHost,
       axesHost);
 
@@ -313,7 +428,7 @@ export function createWizard(root, { getMode, getPoint, onApply }) {
       el('header', { class: 'dialog-head' },
         el('div', {},
           el('div', { class: 'dialog-group' }, 'Coordinate wizard'),
-          el('h2', { id: 'wiz-title' }, 'Enter a point')),
+          titleEl),
         closeBtn),
       body, previewBox,
       el('footer', { class: 'dialog-foot' }, cancelBtn, el('div', { class: 'wiz-actions' }, nextBtn, setBtn)));

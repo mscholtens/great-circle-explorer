@@ -26,4 +26,8 @@ export const COLORS = {
   vertex: '#ffb84d',
   antipode: '#8aa4c8',
   crossing: '#7be0a8',
+  airport: '#cfe3ff',
+  projection: '#c792ff',
+  sun: '#ffe066',
+  night: '#02050f',
 };
