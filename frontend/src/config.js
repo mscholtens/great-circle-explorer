@@ -8,7 +8,7 @@ export const LABELS_URL = '/data/labels.json';
 export const GLYPHS_URL = '/fonts/{fontstack}/{range}.pbf';
 export const FONT_STACK = ['Noto Sans Regular'];
 
-export const INITIAL_VIEW = { center: [10, 30], zoom: 1.5 };
+export const INITIAL_VIEW = { center: [18, 36] };    // the Mediterranean in the middle; the zoom is chosen so that the globe fills the window (map.js)
 export const RECALC_DEBOUNCE_MS = 150;
 
 export const COLORS = {

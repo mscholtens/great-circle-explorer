@@ -7,6 +7,32 @@ import { mapStyle } from './mapstyle.js';
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
+// Fit the view to the window: the globe should fill the part of the window that is not covered by the panel,
+// the toolbar on top and the pointer readout at the bottom. A MapLibre globe of zoom z has a diameter of
+// 512 * 2^z / pi pixels, a flat (Mercator) world is 512 * 2^z pixels wide.
+const TOOLBAR_SPACE = 64;       // px reserved at the top of the map for the toolbar
+const TOOLBAR_SPACE_NARROW = 118;   // the toolbar wraps to two rows on a narrow screen
+const READOUT_SPACE = 44;       // px reserved at the bottom for the pointer readout
+const PANEL_SPACE = 404;        // px covered by the left-hand panel
+const GLOBE_FILL = 0.97;        // share of the free area the globe diameter may use
+
+/** Padding that keeps the view centred in the free part of a window of width x height pixels. */
+function layoutPadding(collapsed, width, height) {
+  const narrow = width <= 760;                                   // the panel is a bottom sheet there
+  const row = document.querySelector('.map-toolbar-row');        // the toolbar wraps to two rows on narrower windows
+  const top = row ? Math.round(row.getBoundingClientRect().bottom) + 8 : (narrow ? TOOLBAR_SPACE_NARROW : TOOLBAR_SPACE);
+  if (narrow) return { top, right: 0, bottom: collapsed ? 0 : Math.round(height * 0.58), left: 0 };
+  return { top, right: 0, bottom: READOUT_SPACE, left: collapsed ? 0 : PANEL_SPACE };
+}
+
+/** The zoom at which the globe (or the flat world) fills the free area. */
+function fitZoom(type, width, height, padding) {
+  const w = Math.max(100, width - padding.left - padding.right);
+  const h = Math.max(100, height - padding.top - padding.bottom);
+  const z = type === 'mercator' ? Math.log2(w / 512) : Math.log2((Math.min(w, h) * GLOBE_FILL * Math.PI) / 512);
+  return Math.min(6, Math.max(0.3, z));
+}
+
 function lineFeature(coords) {
   return coords && coords.length > 1
     ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
@@ -18,11 +44,13 @@ function lineFeature(coords) {
  * returns:  { setPoint, setResult, setVisible, resize }
  */
 export function createMap(container, handlers) {
+  const startPadding = layoutPadding(false, window.innerWidth, window.innerHeight);
+  const startZoom = fitZoom('globe', window.innerWidth, window.innerHeight, startPadding);   // already right in the first frame
   const map = new maplibregl.Map({
     container,
     style: mapStyle,
     center: INITIAL_VIEW.center,
-    zoom: INITIAL_VIEW.zoom,
+    zoom: startZoom,
     attributionControl: false,
     maxPitch: 60,
     renderWorldCopies: true,
@@ -100,7 +128,9 @@ export function createMap(container, handlers) {
   }
 
   function applyProjection() {
-    if (ready) map.setProjection({ type: projection });
+    if (!ready) return;
+    map.setProjection({ type: projection });
+    fitToPanel(document.body.classList.contains('panel-collapsed'), false, true);     // another projection, another size
   }
 
   /** Day/night shading and the sub-solar point (data from /api/terminator, or null to clear). */
@@ -253,18 +283,24 @@ export function createMap(container, handlers) {
     handlers.onMapClick({ lat, lon: wrapLon(lng) });
   });
 
-  /** Keep the globe centered in the part of the screen the panel does not cover. */
-  function fitToPanel(collapsed, animate = true) {
-    const narrow = window.matchMedia('(max-width: 760px)').matches;
-    const padding = collapsed
-      ? { top: 0, right: 0, bottom: 0, left: 0 }
-      : narrow
-        ? { top: 0, right: 0, bottom: Math.round(window.innerHeight * 0.58), left: 0 }
-        : { top: 0, right: 0, bottom: 0, left: 404 };
-    map.easeTo({ padding, duration: animate ? 300 : 0 });
+  let userZoomed = false;      // once the user zooms by hand, a resize no longer changes the zoom
+  map.on('zoomstart', (e) => { if (e.originalEvent) userZoomed = true; });
+
+  /**
+   * Centre the view in the part of the window the panel does not cover and, unless the user zoomed by hand
+   * (or `refit` forces it), zoom so that the globe fills that area.
+   */
+  function fitToPanel(collapsed, animate = true, refit = true) {
+    const width = map.getContainer().clientWidth;
+    const height = map.getContainer().clientHeight;
+    const padding = layoutPadding(collapsed, width, height);
+    if (refit) userZoomed = false;
+    const options = { padding, duration: animate ? 300 : 0 };
+    if (!userZoomed) options.zoom = fitZoom(projection, width, height, padding);
+    map.easeTo(options);
   }
   map.on('load', () => fitToPanel(false, false));
-  window.addEventListener('resize', () => fitToPanel(document.body.classList.contains('panel-collapsed'), false));
+  window.addEventListener('resize', () => fitToPanel(document.body.classList.contains('panel-collapsed'), false, false));
 
   return {
     map,
