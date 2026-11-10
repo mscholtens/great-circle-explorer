@@ -399,3 +399,16 @@ input[readonly] { cursor: default; border-style: dashed; color: #c9b8ee; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* Distance analysis: choose which distances to show */
+.an-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 13px; }
+.dialog.chooser { width: min(560px, 100%); }
+.pick-tools { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.pick-tools .muted { margin-left: auto; font-size: 12.5px; }
+.pick-list { display: flex; flex-direction: column; gap: 6px; }
+.pick-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); cursor: pointer; }
+.pick-row:hover { background: rgba(255, 255, 255, 0.08); }
+.pick-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.pick-text { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+.pick-text strong { font-size: 14px; font-weight: 650; }
+.pick-text small { flex-basis: 100%; color: var(--muted); font-size: 11.5px; line-height: 1.35; }

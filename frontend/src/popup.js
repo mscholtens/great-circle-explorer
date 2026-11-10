@@ -3,8 +3,14 @@ import { buildConstants, buildNotes, buildSteps } from './explanation.js';
 import { el, explanationToText } from './format.js';
 import { showModal } from './modal.js';
 
+const HIDDEN_KEY = 'gce.analysis.hidden';
+
 export function createPopup(root) {
   let modal = null;
+  // ids of the distance-analysis rows the user switched off (kept in this browser only; empty = show all)
+  let hidden = new Set();
+  try { hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); } catch (_) { /* no storage: show all */ }
+  const saveHidden = () => { try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch (_) { /* ignore */ } };
 
   function close() {
     if (modal) modal.close();
@@ -68,7 +74,8 @@ export function createPopup(root) {
     close();
     const returnFocus = opener || document.activeElement;
     const an = metric.analysis;
-    const longest = Math.max(...an.rows.map((r) => r.km || 0), 1);
+    const shown = an.rows.filter((r) => r.is_reference || !hidden.has(r.id));
+    const longest = Math.max(...shown.map((r) => r.km || 0), 1);
     const again = () => openAnalysis(metric, opener, metrics);
     const ref = an.rows.find((r) => r.is_reference);
     const refPct = ref && ref.km ? (ref.km / longest) * 100 : null;   // a white tick on every bar marks the reference length
@@ -100,6 +107,8 @@ export function createPopup(root) {
     copyBtn.addEventListener('click', () => copyText(text(), copyBtn));
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, '✕');
     closeBtn.addEventListener('click', close);
+    const chooseBtn = el('button', { class: 'btn', type: 'button' }, 'Choose distances…');
+    chooseBtn.addEventListener('click', () => { close(); openChooser(metric, again); });
 
     const dialog = el('div', {
       class: 'dialog analysis', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dialog-title', tabindex: '-1',
@@ -112,7 +121,9 @@ export function createPopup(root) {
       closeBtn),
     el('div', { class: 'dialog-body' },
       el('p', { class: 'summary' }, `${metric.explanation.summary} Differences are relative to the ${an.reference_label}. Click a row to see how it is calculated.`),
-      el('div', { class: 'an-list', role: 'group', 'aria-label': 'Ways to measure the distance' }, an.rows.map(rowButton)),
+      el('div', { class: 'an-tools' },
+        el('span', { class: 'muted' }, `Showing ${shown.length} of ${an.rows.length} distances`), chooseBtn),
+      el('div', { class: 'an-list', role: 'group', 'aria-label': 'Ways to measure the distance' }, shown.map(rowButton)),
       an.summary && an.summary.length
         ? el('section', { class: 'an-summary' }, el('h3', {}, 'What changes the answer'), an.summary.map((t) => el('p', {}, t)))
         : null,
@@ -121,6 +132,51 @@ export function createPopup(root) {
     el('footer', { class: 'dialog-foot' }, copyBtn, el('span', { class: 'muted' }, 'Esc to close')));
 
     modal = showModal(root, dialog, { returnFocus, initialFocus: closeBtn, onClose: () => { modal = null; } });
+  }
+
+  /** Second window: a check box for every available distance. The reference is always shown (the differences refer to it). */
+  function openChooser(metric, back) {
+    const an = metric.analysis;
+    const boxes = an.rows.map((r) => {
+      const input = el('input', { type: 'checkbox' });
+      input.checked = r.is_reference || !hidden.has(r.id);
+      input.disabled = !!r.is_reference;
+      input.addEventListener('change', () => {
+        if (input.checked) hidden.delete(r.id); else hidden.add(r.id);
+        saveHidden();
+        count.textContent = `${boxes.filter((b) => b.input.checked).length} of ${boxes.length} shown`;
+      });
+      const label = el('label', { class: 'pick-row' }, input,
+        el('span', { class: 'pick-text' }, el('strong', {}, r.label),
+          r.is_reference ? el('span', { class: 'an-badge' }, 'reference · always shown') : null,
+          el('small', {}, `${r.display} · ${r.what}`)));
+      return { input, label, r };
+    });
+    const count = el('span', { class: 'muted' }, `${boxes.filter((b) => b.input.checked).length} of ${boxes.length} shown`);
+    const setAll = (on) => {
+      boxes.forEach((b) => { if (!b.r.is_reference) { b.input.checked = on; if (on) hidden.delete(b.r.id); else hidden.add(b.r.id); } });
+      saveHidden();
+      count.textContent = `${boxes.filter((b) => b.input.checked).length} of ${boxes.length} shown`;
+    };
+    const allBtn = el('button', { class: 'btn', type: 'button' }, 'Select all');
+    allBtn.addEventListener('click', () => setAll(true));
+    const noneBtn = el('button', { class: 'btn', type: 'button' }, 'Select none');
+    noneBtn.addEventListener('click', () => setAll(false));
+    const doneBtn = el('button', { class: 'btn btn-primary', type: 'button' }, 'Done');
+    doneBtn.addEventListener('click', close);
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, '✕');
+    closeBtn.addEventListener('click', close);
+
+    const dialog = el('div', { class: 'dialog chooser', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dialog-title', tabindex: '-1' },
+      el('header', { class: 'dialog-head' },
+        el('div', {}, el('div', { class: 'dialog-group' }, metric.label), el('h2', { id: 'dialog-title' }, 'Choose distances')), closeBtn),
+      el('div', { class: 'dialog-body' },
+        el('p', { class: 'summary' }, 'Tick the distances to show in the table. The choice is remembered in this browser.'),
+        el('div', { class: 'pick-tools' }, allBtn, noneBtn, count),
+        el('div', { class: 'pick-list' }, boxes.map((b) => b.label))),
+      el('footer', { class: 'dialog-foot' }, doneBtn, el('span', { class: 'muted' }, 'Esc to go back')));
+    // every way of leaving this window (Done, ✕, Esc, backdrop) returns to the table
+    modal = showModal(root, dialog, { returnFocus: null, initialFocus: doneBtn, onClose: () => { modal = null; back(); } });
   }
 
   return { open, openAnalysis, close };
