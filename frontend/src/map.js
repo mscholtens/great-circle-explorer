@@ -274,7 +274,8 @@ export function createMap(container, handlers) {
       const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
       const hit = map.queryRenderedFeatures(box, { layers: ['airports-dot'] })[0];
       if (hit) {
-        handlers.onMapClick({ lat: Number(hit.properties.lat), lon: Number(hit.properties.lon) });
+        const h = hit.properties;
+        handlers.onMapClick({ lat: Number(h.lat), lon: Number(h.lon), label: `${h.code} · ${h.name}` });
         return;
       }
     }

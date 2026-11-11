@@ -82,16 +82,18 @@ const toolbar = createToolbar(toolbarRoot, {
 });
 
 const globe = createMap(document.getElementById('map'), {
-  onMapClick(p) {
-    if (panel.getInputMode() === 'course') state.a = p;      // inverse mode: a click moves the start point
-    else if (!state.a) state.a = p;
-    else if (!state.b) state.b = p;
-    else { state.a = p; state.b = null; }   // third click starts over
+  onMapClick({ label, ...p }) {
+    // an airport clicked on the map fills the search box of that point, like a search would; any other click empties it
+    if (panel.getInputMode() === 'course') { state.a = p; panel.setSearchText('a', label); }      // inverse mode: a click moves the start point
+    else if (!state.a) { state.a = p; panel.setSearchText('a', label); }
+    else if (!state.b) { state.b = p; panel.setSearchText('b', label); }
+    else { state.a = p; state.b = null; panel.setSearchText('a', label); panel.setSearchText('b'); }   // third click starts over
     sync();
     schedule();
   },
   onPointMoved(which, p) {
     state[which] = p;
+    panel.setSearchText(which);           // a dragged pin is no longer the searched place
     sync();
     schedule();
   },

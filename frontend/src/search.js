@@ -110,11 +110,11 @@ export function createSearch(which, onPick) {
     if (data.city) line('●', `Nearest city: ${data.city.name}${data.city.country ? ', ' + data.city.country : ''} (${formatDistance(data.city.km, unit)})`);
   }
 
-  /** Empty the box and close the list; a response that is still on its way is ignored. */
-  function clear() {
+  /** Put `text` in the box (a place chosen on the map, or '' to empty it) and close the list; a response on its way is ignored. */
+  function clear(text = '') {
     clearTimeout(timer);
     seq++;
-    input.value = '';
+    input.value = text;
     results = [];
     close();
   }

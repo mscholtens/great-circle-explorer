@@ -363,6 +363,11 @@ export function createPanel(root, handlers) {
     searches[which].setNearest(data, unit);
   }
 
+  /** Show the place of a point that was set on the map (an airport dot), or empty the box when it was not a place. */
+  function setSearchText(which, text) {
+    searches[which].clear(text || '');
+  }
+
   /** Reset: empty both airport/city search boxes. */
   function clearSearch() {
     for (const w of ['a', 'b']) searches[w].clear();
@@ -399,7 +404,7 @@ export function createPanel(root, handlers) {
     optionInputs.course_km.dispatchEvent(new Event('change'));       // lets the unit field take the value
   }
 
-  return { setPoints, setResult, setLoading, getOptions, setUnits, setNearest, flash, getCourse, setCourse, setInputMode,
+  return { setSearchText, setPoints, setResult, setLoading, getOptions, setUnits, setNearest, flash, getCourse, setCourse, setInputMode,
     clearSearch, clearCourse, setDate,
     getInputMode: () => inputMode, getUnit: () => unit, getMode: () => mode };
 }
