@@ -40,7 +40,7 @@ function lineFeature(coords) {
 }
 
 /**
- * handlers: { onMapClick({lat, lon}), onPointMoved('a'|'b', {lat, lon}) }
+ * handlers: { onMapClick({lat, lon}), onPointMoved('a'|'b', {lat, lon}), onPointClicked('a'|'b') }
  * returns:  { setPoint, setResult, setVisible, resize }
  */
 export function createMap(container, handlers) {
@@ -70,9 +70,13 @@ export function createMap(container, handlers) {
   let courseMode = false;   // inverse mode: B is computed, so its pin cannot be dragged
 
   function makeMarker(which, p) {
-    const node = el('div', { class: `pin pin-${which}`, title: `Point ${which.toUpperCase()} (drag to move)` },
+    const node = el('div', { class: `pin pin-${which}`, title: `Point ${which.toUpperCase()} (drag to move, click to remove)` },
       el('span', { text: which.toUpperCase() }));
-    node.addEventListener('click', (e) => e.stopPropagation());
+    let draggedAt = 0;      // a drag ends with a click event: it must not count as a click on the pin
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (Date.now() - draggedAt > 300) handlers.onPointClicked(which);
+    });
     const m = new maplibregl.Marker({ element: node, draggable: !(which === 'b' && courseMode), anchor: 'center' })
       .setLngLat([p.lon, p.lat])
       .addTo(map);
@@ -81,6 +85,7 @@ export function createMap(container, handlers) {
       const lat = Math.max(-90, Math.min(90, ll.lat));
       const lon = wrapLon(ll.lng);
       m.setLngLat([lon, lat]);
+      draggedAt = Date.now();
       handlers.onPointMoved(which, { lat, lon });
     });
     return m;

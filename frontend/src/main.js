@@ -91,6 +91,15 @@ const globe = createMap(document.getElementById('map'), {
     sync();
     schedule();
   },
+  onPointClicked(which) {                // clicking a placed point again removes it, so it can be chosen anew
+    const inverse = panel.getInputMode() === 'course';
+    if (inverse && which === 'b') return;          // B is calculated in this mode
+    state[which] = null;
+    if (inverse) state.b = null;
+    panel.setSearchText(which);
+    sync();
+    schedule();
+  },
   onPointMoved(which, p) {
     state[which] = p;
     panel.setSearchText(which);           // a dragged pin is no longer the searched place
